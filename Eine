@@ -111,6 +111,11 @@ local function getRoot()
     local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart")
 end
 
+-- tabOr passthrough — in Eine mode all tabs exist, so this just returns
+-- the tab as-is. Kept for compatibility with the inherited universal code
+-- which uses tabOr(Tabs.X) at every groupbox declaration.
+local function tabOr(tab) return tab end
+
 -- ====================================================
 -- UNIVERSAL: PLAYER TAB — MOVEMENT
 -- ====================================================
