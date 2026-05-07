@@ -1,0 +1,39 @@
+-- ====================================================
+-- NULLCLIENT LOADER — by Explato
+-- Routes to game-specific module based on PlaceId
+-- ====================================================
+
+local REPO_BASE = "https://raw.githubusercontent.com/PlatoStuff/Nullclient/refs/heads/main/"
+
+local PLACE_IDS = {
+    [70845479499574]  = "BBN",       -- Bite by Night
+    [122580782680259] = "Eine",      -- Eine
+}
+local UNIVERSAL_FILE = "Universal"
+
+local moduleFile = PLACE_IDS[game.PlaceId] or UNIVERSAL_FILE
+local url = REPO_BASE .. moduleFile
+
+-- Clean up any existing instance of the hub before reloading. Prevents ghost
+-- UI from previous loads stacking up if the user re-executes mid-session.
+if getgenv().Library then
+    pcall(function() getgenv().Library:Unload() end)
+    getgenv().Library = nil
+end
+
+-- Load the chosen module. If GitHub or the URL is unreachable, surface the
+-- actual error so the user can debug rather than failing silently.
+local ok, err = pcall(function()
+    loadstring(game:HttpGet(url))()
+end)
+
+if not ok then
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Nullclient Loader",
+            Text = "Failed to load " .. moduleFile .. ": " .. tostring(err):sub(1, 120),
+            Duration = 8,
+        })
+    end)
+    warn("[Nullclient Loader] " .. tostring(err))
+end
