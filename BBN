@@ -1,0 +1,2241 @@
+-- ====================================================
+-- NULLCLIENT BBN — by Explato
+-- Bite by Night dedicated script
+-- ====================================================
+
+-- ============= LIBRARY LOADING =============
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+-- Expose for runtime debugging via F9 console (getgenv().Library.Toggles etc.)
+if getgenv then getgenv().Library = Library end
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+-- ============= SERVICES =============
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ============= WINDOW =============
+local Window = Library:CreateWindow({
+    Title = "Bite by Night",
+    Icon = 77579974632873,
+    Footer = "Null · Bite by Night",
+    NotifySide = "Right",
+    ShowCustomCursor = true,
+    Center = true,
+    AutoShow = true,
+    Size = UDim2.fromOffset(750, 620),
+})
+
+Library:AddDraggableLabel("Nullclient · Bite by Night")
+
+-- ============= GRADIENT HACK =============
+-- Obsidian doesn't support gradients natively — we inject a UIGradient on the
+-- main window frame. Heuristic search since Obsidian's internals aren't public.
+task.spawn(function()
+    task.wait(0.5)
+    local function isMainWindowCandidate(frame)
+        if not frame:IsA("Frame") then return false, 0 end
+        local size = frame.AbsoluteSize
+        if size.X < 400 or size.Y < 300 then return false, 0 end
+        local ratio = size.X / math.max(size.Y, 1)
+        local shapeScore = (ratio > 1.0 and ratio < 1.6) and 1.5 or 1.0
+        return true, size.X * size.Y * shapeScore
+    end
+    local searchRoots = {}
+    if Library.Holder then table.insert(searchRoots, Library.Holder) end
+    if Library.MainFrame then table.insert(searchRoots, Library.MainFrame) end
+    if Library.Container then table.insert(searchRoots, Library.Container) end
+    if Library.ScreenGui then table.insert(searchRoots, Library.ScreenGui) end
+    table.insert(searchRoots, game:GetService("CoreGui"))
+    if LocalPlayer:FindFirstChild("PlayerGui") then
+        table.insert(searchRoots, LocalPlayer.PlayerGui)
+    end
+    local target, bestScore = nil, 0
+    for _, root in ipairs(searchRoots) do
+        if root and root.GetDescendants then
+            for _, child in ipairs(root:GetDescendants()) do
+                local ok, score = isMainWindowCandidate(child)
+                if ok and score > bestScore then
+                    target, bestScore = child, score
+                end
+            end
+        end
+    end
+    if target then
+        if target:FindFirstChild("NullclientGradient") then
+            target.NullclientGradient:Destroy()
+        end
+        local gradient = Instance.new("UIGradient")
+        gradient.Name = "NullclientGradient"
+        gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,    Color3.fromRGB(45, 18, 90)),
+            ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(20, 10, 40)),
+            ColorSequenceKeypoint.new(1,    Color3.fromRGB(8, 4, 18)),
+        })
+        gradient.Rotation = 135
+        gradient.Parent = target
+    end
+end)
+
+-- ============= TABS =============
+local Tabs = {}
+Tabs.BBN_Info     = Window:AddTab("Info",      "info")
+Tabs.BBN_Fun      = Window:AddTab("Fun",       "smile")
+Tabs.BBN_Tasks    = Window:AddTab("Tasks",     "list-checks")
+Tabs.BBN_Farm     = Window:AddTab("Auto-Farm", "zap")
+Tabs.BBN_Local    = Window:AddTab("Local",     "user")
+Tabs.BBN_Visuals  = Window:AddTab("Visuals",   "eye")
+Tabs.BBN_Combat   = Window:AddTab("Combat",    "swords")
+Tabs.BBN_AntiLag  = Window:AddTab("Anti-Lag",  "zap-off")
+Tabs.BBN_Other    = Window:AddTab("Other",     "folder")
+Tabs["UI Settings"] = Window:AddTab("UI Settings", "settings")
+
+
+-- Convenient aliases
+local LP = LocalPlayer
+local function bbnGetChar()    return LP.Character end
+local function bbnGetHum()     local c = bbnGetChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+local function bbnGetRoot()    local c = bbnGetChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+
+local function notImpl(feature)
+    Library:Notify({
+        Title = "Not implemented yet",
+        Description = feature .. " — UI ready, logic pending. Test on real game first.",
+        Time = 4,
+    })
+end
+
+-- ====================================================
+-- INFO TAB
+-- ====================================================
+local InfoBox = Tabs.BBN_Info:AddLeftGroupbox("Information", "info")
+
+InfoBox:AddLabel("Main script: Nullclient Hub · BBN")
+InfoBox:AddDivider()
+
+-- Executor probe
+local execName, ranChecks, totalChecks
+do
+    local checks = {
+        {"loadstring",         loadstring},
+        {"getgenv",            getgenv},
+        {"hookmetamethod",     hookmetamethod},
+        {"getnamecallmethod",  getnamecallmethod},
+        {"getgc",              getgc and true},
+        {"debug.getconstants", debug and debug.getconstants},
+        {"debug.getupvalue",   debug and debug.getupvalue},
+        {"Drawing",            Drawing},
+        {"writefile",          writefile},
+        {"isfile",             isfile},
+        {"getcustomasset",     getcustomasset},
+    }
+    ranChecks = 0
+    totalChecks = #checks
+    for _, c in ipairs(checks) do
+        if c[2] then ranChecks = ranChecks + 1 end
+    end
+    execName = (identifyexecutor and identifyexecutor()) or "Unknown"
+end
+
+InfoBox:AddLabel("Executor Status:")
+InfoBox:AddLabel("Using: " .. tostring(execName))
+InfoBox:AddLabel("Passed " .. ranChecks .. "/" .. totalChecks .. " support checks")
+
+-- ====================================================
+-- FUN TAB
+-- ====================================================
+local MusicBox = Tabs.BBN_Fun:AddLeftGroupbox("Music", "music")
+
+MusicBox:AddDropdown("BBN_MusicFile", {
+    Text = "Select Music File",
+    Values = { "Select Music File" }, Default = 1, Multi = false,
+})
+MusicBox:AddInput("BBN_MusicURL", {
+    Default = "", Numeric = false, Finished = false,
+    Text = "Direct MP3 URL / Asset ID",
+    Placeholder = "Enter direct MP3 URL or rbxassetid here",
+})
+MusicBox:AddButton({
+    Text = "Scan Music Folders",
+    Func = function()
+        if not (listfiles and isfolder) then
+            Library:Notify({Title = "Music", Description = "Executor lacks listfiles/isfolder", Time = 4})
+            return
+        end
+        local found = {}
+        for _, folder in ipairs({"music", "Music", "Nullclient/music"}) do
+            if isfolder(folder) then
+                for _, file in ipairs(listfiles(folder)) do
+                    table.insert(found, file)
+                end
+            end
+        end
+        if #found > 0 then
+            Options.BBN_MusicFile:SetValues(found)
+            Library:Notify({Title = "Music", Description = "Found " .. #found .. " files", Time = 3})
+        else
+            Library:Notify({Title = "Music", Description = "No music files found in /music", Time = 3})
+        end
+    end,
+})
+
+local bbnMusicSound
+MusicBox:AddButton({
+    Text = "Play Selected / Custom OST",
+    Func = function()
+        if bbnMusicSound then bbnMusicSound:Stop(); bbnMusicSound:Destroy(); bbnMusicSound = nil end
+        local url = Options.BBN_MusicURL.Value
+        local soundId
+        if url and url ~= "" then
+            local digits = tostring(url):gsub("%D", "")
+            if digits ~= "" and digits == url:gsub("%s", "") then
+                soundId = "rbxassetid://" .. digits
+            else
+                soundId = url
+            end
+        end
+        if not soundId then
+            Library:Notify({Title = "Music", Description = "Enter a URL or asset ID first", Time = 3})
+            return
+        end
+        bbnMusicSound = Instance.new("Sound")
+        bbnMusicSound.SoundId = soundId
+        bbnMusicSound.Volume = 0.5
+        bbnMusicSound.Looped = true
+        bbnMusicSound.Parent = workspace
+        bbnMusicSound:Play()
+        Library:Notify({Title = "Music", Description = "Playing", Time = 2})
+    end,
+})
+
+local EmoteBox = Tabs.BBN_Fun:AddRightGroupbox("Emote Menu", "smile-plus")
+EmoteBox:AddLabel("Plays any BBN emote module from ReplicatedStorage.Modules.Emotes")
+EmoteBox:AddDivider()
+EmoteBox:AddDropdown("BBN_EmoteName", {
+    Text = "Emote",
+    Values = { "(click Refresh List)" },
+    Default = 1, Multi = false,
+    Tooltip = "Click 'Refresh List' to populate from the game's emote modules",
+})
+
+EmoteBox:AddButton({
+    Text = "Refresh Emote List",
+    Func = function()
+        local rep = game:GetService("ReplicatedStorage")
+        local modules = rep:FindFirstChild("Modules")
+        local emotesFolder = modules and modules:FindFirstChild("Emotes")
+        if not emotesFolder then
+            Library:Notify({Title = "Emotes", Description = "ReplicatedStorage.Modules.Emotes not found", Time = 4})
+            return
+        end
+        local names = {}
+        for _, m in ipairs(emotesFolder:GetChildren()) do
+            if m:IsA("ModuleScript") then
+                table.insert(names, m.Name)
+            end
+        end
+        table.sort(names)
+        if #names > 0 then
+            Options.BBN_EmoteName:SetValues(names)
+            Library:Notify({Title = "Emotes", Description = "Loaded " .. #names .. " emotes", Time = 3})
+        else
+            Library:Notify({Title = "Emotes", Description = "No emote modules found", Time = 4})
+        end
+    end,
+})
+
+local activeEmote -- holds the EmoteClass instance so we can stop it later
+
+local function fireBBNEmote()
+    local emoteName = Options.BBN_EmoteName and Options.BBN_EmoteName.Value
+    if not emoteName or emoteName == "" or emoteName == "(click Refresh List)" then
+        Library:Notify({Title = "Emote", Description = "Refresh the list and pick an emote first", Time = 3})
+        return
+    end
+
+    local char = bbnGetChar()
+    if not char then
+        Library:Notify({Title = "Emote", Description = "No character", Time = 3})
+        return
+    end
+
+    local rep = game:GetService("ReplicatedStorage")
+    local emoteModule = rep:FindFirstChild("Modules")
+        and rep.Modules:FindFirstChild("Emotes")
+        and rep.Modules.Emotes:FindFirstChild(emoteName)
+    if not emoteModule then
+        Library:Notify({Title = "Emote", Description = "Module '" .. emoteName .. "' not found", Time = 4})
+        return
+    end
+
+    -- Stop any previous emote before starting new one
+    if activeEmote and activeEmote.Stop then
+        pcall(function() activeEmote.Stop() end)
+        activeEmote = nil
+    end
+
+    local ok, err = pcall(function()
+        local mod = require(emoteModule)
+        -- Each emote module: t.new({character1, character2, ...}) returns
+        -- an EmoteClass instance. We pass our character as the only target.
+        local emoteInstance = mod.new({ char })
+        activeEmote = emoteInstance
+        if emoteInstance.EmoteFunc then
+            emoteInstance.EmoteFunc()
+        end
+    end)
+    if ok then
+        Library:Notify({Title = "Emote", Description = "Playing: " .. emoteName, Time = 2})
+    else
+        Library:Notify({Title = "Emote", Description = tostring(err):sub(1, 80), Time = 5})
+    end
+end
+
+EmoteBox:AddButton({ Text = "Play Selected Emote", Func = fireBBNEmote })
+EmoteBox:AddButton({
+    Text = "Stop Emote",
+    Func = function()
+        if activeEmote and activeEmote.Stop then
+            pcall(function() activeEmote.Stop() end)
+            activeEmote = nil
+            Library:Notify({Title = "Emote", Description = "Stopped", Time = 2})
+        end
+        -- Also stop any humanoid animations that linger
+        local hum = bbnGetHum()
+        if hum then
+            for _, t in ipairs(hum:GetPlayingAnimationTracks()) do
+                pcall(function() t:Stop() end)
+            end
+        end
+    end,
+})
+
+-- Auto-populate on script load
+task.spawn(function()
+    task.wait(2) -- let game/modules finish loading
+    if Library.Unloaded then return end
+    local rep = game:GetService("ReplicatedStorage")
+    local emotesFolder = rep:FindFirstChild("Modules") and rep.Modules:FindFirstChild("Emotes")
+    if not emotesFolder then return end
+    local names = {}
+    for _, m in ipairs(emotesFolder:GetChildren()) do
+        if m:IsA("ModuleScript") then table.insert(names, m.Name) end
+    end
+    table.sort(names)
+    if #names > 0 and Options.BBN_EmoteName then
+        Options.BBN_EmoteName:SetValues(names)
+    end
+end)
+
+local SnakeBox = Tabs.BBN_Fun:AddLeftGroupbox("Snake Menu", "gamepad-2")
+SnakeBox:AddToggle("BBN_SnakeGod", {
+    Text = "Snake God Mode", Default = false,
+    Tooltip = "Snake can pass through walls and itself — always survives",
+})
+
+-- Snake God Mode: hook the SnakeGame module's CheckForDeath function.
+-- The module table is identified by having all of: CheckForDeath, Render,
+-- SpawnFruit (the real method names per decomp lines 4426-4615).
+local snakeOriginalCheckForDeath
+local snakeModuleTable
+local function findSnakeModule()
+    if snakeModuleTable then return snakeModuleTable end
+    if not getgc then return nil end
+    for _, item in ipairs(getgc(true)) do
+        if type(item) == "table"
+            and rawget(item, "CheckForDeath")
+            and rawget(item, "Render")
+            and rawget(item, "SpawnFruit") then
+            snakeModuleTable = item
+            return item
+        end
+    end
+    return nil
+end
+
+Toggles.BBN_SnakeGod:OnChanged(function()
+    local on = Toggles.BBN_SnakeGod.Value
+    if on then
+        local mod = findSnakeModule()
+        if not mod then
+            Library:Notify({Title = "Snake God", Description = "SnakeGame module not loaded — open the snake game once first", Time = 5})
+            Toggles.BBN_SnakeGod:SetValue(false)
+            return
+        end
+        if not snakeOriginalCheckForDeath then
+            snakeOriginalCheckForDeath = mod.CheckForDeath
+        end
+        mod.CheckForDeath = function() return false end
+        Library:Notify({Title = "Snake God", Description = "Immortal snake activated 🐍", Time = 3})
+    else
+        if snakeModuleTable and snakeOriginalCheckForDeath then
+            snakeModuleTable.CheckForDeath = snakeOriginalCheckForDeath
+            Library:Notify({Title = "Snake God", Description = "Restored normal collisions", Time = 2})
+        end
+    end
+end)
+
+-- ====================================================
+-- TASKS TAB — Automation
+-- ====================================================
+local AutoBox = Tabs.BBN_Tasks:AddLeftGroupbox("Automation", "list-checks")
+
+AutoBox:AddToggle("BBN_AutoRepairGen", {
+    Text = "Auto-Repair Generators", Default = false,
+    Tooltip = "Watches for opened generators and fires the completion event automatically",
+})
+AutoBox:AddSlider("BBN_RepairMin", {
+    Text = "Auto-Repair Min Interval", Default = 0.5, Min = 0.1, Max = 15,
+    Rounding = 1, Suffix = "s",
+})
+AutoBox:AddSlider("BBN_RepairMax", {
+    Text = "Auto-Repair Max Interval", Default = 1.5, Min = 0.1, Max = 15,
+    Rounding = 1, Suffix = "s",
+})
+AutoBox:AddToggle("BBN_AutoShakeMinions", {
+    Text = "Auto-Shake Minions", Default = false,
+    Tooltip = "Continuously jitters the mouse to shake off Ennard's minions",
+})
+AutoBox:AddToggle("BBN_InstantPrompts", {
+    Text = "Instant Prompts", Default = false,
+    Tooltip = "Sets HoldDuration = 0 on every ProximityPrompt for instant interaction",
+})
+AutoBox:AddToggle("BBN_PerfectBarricade", {
+    Text = "Perfect Barricade", Default = false,
+    Tooltip = "Locks your mouse to screen center while barricading — no shake interference",
+})
+
+-- Auto-repair watcher: looks for the GeneratorMain LocalScript when it appears.
+-- PlayerGui gets recreated on respawn, so we rebind the connection each life.
+local _bbnAutoRepairConn
+local function bindAutoRepairWatcher()
+    if _bbnAutoRepairConn then _bbnAutoRepairConn:Disconnect(); _bbnAutoRepairConn = nil end
+    local pg = LP:WaitForChild("PlayerGui", 5)
+    if not pg then return end
+    _bbnAutoRepairConn = pg.DescendantAdded:Connect(function(d)
+        if not (Toggles.BBN_AutoRepairGen and Toggles.BBN_AutoRepairGen.Value) then return end
+        if d:IsA("LocalScript") and d.Name == "GeneratorMain" then
+            local minDelay = Options.BBN_RepairMin.Value or 0.5
+            local maxDelay = Options.BBN_RepairMax.Value or 1.5
+            task.wait(minDelay + math.random() * (maxDelay - minDelay))
+            local ev = d:FindFirstChild("Event")
+            if ev and ev:IsA("RemoteEvent") then
+                pcall(function()
+                    ev:FireServer({Lever = true, Switches = true, Wires = true})
+                end)
+                Library:Notify({Title = "Generator", Description = "Auto-repaired", Time = 2})
+            end
+        end
+    end)
+end
+bindAutoRepairWatcher()
+LP.CharacterAdded:Connect(function()
+    task.wait(1) -- let PlayerGui rebuild
+    bindAutoRepairWatcher()
+end)
+
+-- Instant prompts loop
+task.spawn(function()
+    while task.wait(0.5) do
+        if Library.Unloaded then break end
+        if Toggles.BBN_InstantPrompts and Toggles.BBN_InstantPrompts.Value then
+            for _, p in ipairs(workspace:GetDescendants()) do
+                if p:IsA("ProximityPrompt") and p.HoldDuration > 0 then
+                    p.HoldDuration = 0
+                end
+            end
+        end
+    end
+end)
+
+-- Auto-Shake Minions: rapidly jitter the mouse via mousemoverel — but ONLY
+-- when a minion is actually attached to the player. We detect minion-attached
+-- state by scanning the local character for a descendant whose name contains
+-- "Minion" (the throw module clones minion meshes onto the victim's torso).
+-- If no minion is on you, we don't shake — keeps your aim sane.
+-- Result is cached with 0.1s freshness to avoid scanning descendants every
+-- frame (60+/sec was overkill). Latency on detection is fine — minion
+-- shake-off mechanics work over multiple seconds.
+local _bbnMinionLastCheck = 0
+local _bbnMinionAttached = false
+local function isMinionAttached()
+    local now = tick()
+    if now - _bbnMinionLastCheck < 0.1 then return _bbnMinionAttached end
+    _bbnMinionLastCheck = now
+    local char = bbnGetChar()
+    if not char then _bbnMinionAttached = false; return false end
+    for _, d in ipairs(char:GetDescendants()) do
+        local n = d.Name
+        if type(n) == "string" and (n:find("Minion") or n == "minion") then
+            _bbnMinionAttached = true
+            return true
+        end
+    end
+    _bbnMinionAttached = false
+    return false
+end
+
+RunService.RenderStepped:Connect(function()
+    if not (Toggles.BBN_AutoShakeMinions and Toggles.BBN_AutoShakeMinions.Value) then return end
+    if not mousemoverel then return end -- some executors don't expose this
+    if not isMinionAttached() then return end -- only shake when actually grabbed
+    local dx = (math.random() - 0.5) * 30
+    local dy = (math.random() - 0.5) * 30
+    pcall(mousemoverel, dx, dy)
+end)
+
+-- Perfect Barricade: while Character:HasTag("Barricading") is true,
+-- force the mouse to dead center via three layers of defense:
+--   1. UserInputService.MouseBehavior = LockCenter
+--   2. LocalPlayer:SetAttribute("Mouselocked", true)
+--   3. mousemoverel pushes cursor toward viewport center every frame
+--
+-- 0.3s grace window after the tag goes false handles brief tag flickers.
+-- On release, force MouseBehavior to Default — game's own state may be
+-- whatever and capturing it during the barricade was unreliable.
+local _bbnBarricadeLastSeen = 0
+local _bbnBarricadeWasLocked = false
+
+local function bbnIsBarricading()
+    local char = bbnGetChar()
+    if char and char:HasTag("Barricading") then
+        _bbnBarricadeLastSeen = tick()
+        return true
+    end
+    return (tick() - _bbnBarricadeLastSeen) < 0.3
+end
+
+RunService.RenderStepped:Connect(function()
+    local enabled = Toggles.BBN_PerfectBarricade and Toggles.BBN_PerfectBarricade.Value
+    if not enabled then
+        if _bbnBarricadeWasLocked then
+            pcall(function() UserInputService.MouseBehavior = Enum.MouseBehavior.Default end)
+            pcall(function() LP:SetAttribute("Mouselocked", false) end)
+            _bbnBarricadeWasLocked = false
+        end
+        return
+    end
+    if not bbnIsBarricading() then
+        if _bbnBarricadeWasLocked then
+            -- Release — restore to Default so cursor is free for the user
+            pcall(function() UserInputService.MouseBehavior = Enum.MouseBehavior.Default end)
+            pcall(function() LP:SetAttribute("Mouselocked", false) end)
+            _bbnBarricadeWasLocked = false
+        end
+        return
+    end
+    -- Active barricade
+    _bbnBarricadeWasLocked = true
+    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    pcall(function() LP:SetAttribute("Mouselocked", true) end)
+    if mousemoverel then
+        local mouse = LP:GetMouse()
+        local vp = Camera.ViewportSize
+        local dx = (vp.X / 2) - mouse.X
+        local dy = (vp.Y / 2) - mouse.Y
+        if math.abs(dx) > 1 or math.abs(dy) > 1 then
+            pcall(mousemoverel, dx, dy)
+        end
+    end
+end)
+
+-- ====================================================
+-- AUTO-FARM TAB
+-- ====================================================
+local FarmBox = Tabs.BBN_Farm:AddLeftGroupbox("Auto-Farm", "zap")
+
+FarmBox:AddToggle("BBN_AutoEscape", {
+    Text = "Auto Escape", Default = false, Risky = true,
+    Tooltip = "When 6AM hits and an EscapePoint is active, teleports you to it",
+})
+
+-- Auto Escape: BBN's escape points live at workspace.MAPS["GAME MAP"].Escapes.
+-- Each escape is presumably activated when 6AM hits — we look for one whose
+-- Highlight is enabled (or fallback: any escape with players touching it),
+-- then TP there. Server detects the touch and fires the win sequence.
+task.spawn(function()
+    while task.wait(1) do
+        if Library.Unloaded then break end
+        if not (Toggles.BBN_AutoEscape and Toggles.BBN_AutoEscape.Value) then continue end
+
+        local maps = workspace:FindFirstChild("MAPS")
+        local map = maps and maps:FindFirstChild("GAME MAP")
+        local escapes = map and map:FindFirstChild("Escapes")
+        if not escapes then continue end
+
+        local activePoint
+        for _, child in ipairs(escapes:GetChildren()) do
+            local hl = child:FindFirstChildOfClass("Highlight")
+            if hl and hl.Enabled then
+                activePoint = child
+                break
+            end
+        end
+
+        if activePoint then
+            local root = bbnGetRoot()
+            if root then
+                local target = activePoint:IsA("BasePart") and activePoint.CFrame
+                            or (activePoint:FindFirstChildWhichIsA("BasePart") and activePoint:FindFirstChildWhichIsA("BasePart").CFrame)
+                if target then
+                    root.CFrame = target + Vector3.new(0, 3, 0)
+                    Library:Notify({Title = "Auto Escape", Description = "Teleported to escape point", Time = 3})
+                    Toggles.BBN_AutoEscape:SetValue(false)
+                end
+            end
+        end
+    end
+end)
+
+-- ====================================================
+-- LOCAL TAB — Player Modifications
+-- ====================================================
+local PlayerModBox = Tabs.BBN_Local:AddLeftGroupbox("Player Modifications", "user")
+
+PlayerModBox:AddToggle("BBN_InfStamina", {
+    Text = "Infinite Stamina", Default = false,
+    Tooltip = "Keeps Character.Stamina pegged at MaxStamina",
+})
+PlayerModBox:AddToggle("BBN_Noclip", { Text = "Noclip", Default = false })
+PlayerModBox:AddToggle("BBN_AdvFlyPC", {
+    Text = "Advanced Fly (PC)", Default = false,
+    Tooltip = "Camera-relative WASD + Space + Shift",
+})
+PlayerModBox:AddToggle("BBN_AntiStunRagdoll", {
+    Text = "Anti-Stun & Anti-Ragdoll", Default = false, Risky = true,
+    Tooltip = "Clears Stun and Ragdoll attributes when the server sets them",
+})
+PlayerModBox:AddToggle("BBN_GhostMode", {
+    Text = "Ghost Mode (Local)", Default = false,
+    Tooltip = "Makes your character locally invisible and non-colliding",
+})
+PlayerModBox:AddToggle("BBN_NativeSpeedBypass", {
+    Text = "Native Speed Bypass", Default = false, Risky = true,
+    Tooltip = "Bypasses BBN's WalkSpeed clamp by writing every frame",
+})
+PlayerModBox:AddSlider("BBN_WalkSpeed", {
+    Text = "Walk Speed", Default = 24, Min = 16, Max = 100, Rounding = 0,
+})
+PlayerModBox:AddSlider("BBN_RunSpeed", {
+    Text = "Run Speed", Default = 40, Min = 16, Max = 150, Rounding = 0,
+})
+
+-- ============= INFINITE STAMINA + RUNNING-LATCH =============
+-- BBN's run system (decomp lines 41034-41048 and 26302-26313) checks
+-- `Stamina > 0` AND `Running == true` to apply RunSpeed. When stamina
+-- hits zero, the input script flips Running=false. After our heartbeat
+-- restores Stamina, Running stays false until you re-press Shift.
+--
+-- Fix: hook GetAttributeChangedSignal("Running") on the character so the
+-- moment BBN flips Running=false, we synchronously flip it back to true
+-- (if our toggle is on AND shift is held). Heartbeat ordering doesn't
+-- matter — attribute signals fire immediately on Set.
+local _bbnRunningConn
+local function bbnRebindRunningHook(char)
+    if _bbnRunningConn then _bbnRunningConn:Disconnect(); _bbnRunningConn = nil end
+    if not char then return end
+    _bbnRunningConn = char:GetAttributeChangedSignal("Running"):Connect(function()
+        if not (Toggles.BBN_InfStamina and Toggles.BBN_InfStamina.Value) then return end
+        if char:GetAttribute("Running") ~= false then return end
+        -- Only counter if shift is held + we're allowed to run
+        if not UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then return end
+        if char:HasTag("Battery") or char:GetAttribute("Ragdoll") then return end
+        if not char:GetAttribute("CanRun") then return end
+        -- Re-assert
+        char:SetAttribute("Stamina", char:GetAttribute("MaxStamina") or 100)
+        char:SetAttribute("Running", true)
+    end)
+end
+bbnRebindRunningHook(bbnGetChar())
+LP.CharacterAdded:Connect(function(c)
+    task.wait(0.5) -- let attributes initialize
+    bbnRebindRunningHook(c)
+end)
+
+-- Heartbeat: stamina, speed bypass, anti-stun/ragdoll, ghost
+RunService.Heartbeat:Connect(function()
+    local char = bbnGetChar(); if not char then return end
+    local hum = bbnGetHum()
+
+    if Toggles.BBN_InfStamina.Value then
+        local maxS = char:GetAttribute("MaxStamina")
+        if maxS and maxS > 0 then
+            char:SetAttribute("Stamina", maxS)
+        else
+            char:SetAttribute("MaxStamina", 999)
+            char:SetAttribute("Stamina", 999)
+        end
+        -- Belt-and-suspenders: per-frame Running re-assertion in case
+        -- the attribute signal hook missed an edge transition.
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and char:GetAttribute("CanRun") then
+            if not char:HasTag("Battery") and not char:GetAttribute("Ragdoll") then
+                if char:GetAttribute("Running") ~= true then
+                    char:SetAttribute("Running", true)
+                end
+            end
+        end
+    end
+
+    if Toggles.BBN_AntiStunRagdoll.Value then
+        if char:GetAttribute("Stun") then char:SetAttribute("Stun", false) end
+        if char:GetAttribute("Ragdoll") then char:SetAttribute("Ragdoll", false) end
+    end
+
+    if Toggles.BBN_NativeSpeedBypass.Value and hum then
+        hum.WalkSpeed = Options.BBN_WalkSpeed.Value
+        char:SetAttribute("WalkSpeed", Options.BBN_WalkSpeed.Value)
+        char:SetAttribute("RunSpeed",  Options.BBN_RunSpeed.Value)
+    end
+
+    if Toggles.BBN_GhostMode.Value then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.Transparency = 1
+                p.CanCollide = false
+            elseif p:IsA("Decal") then
+                p.Transparency = 1
+            end
+        end
+    end
+end)
+
+-- Ghost Mode restore on toggle-off: snapshots transparency on toggle-on,
+-- restores on toggle-off. Without this, you'd stay invisible forever.
+local _bbnGhostSnapshot
+Toggles.BBN_GhostMode:OnChanged(function()
+    local char = bbnGetChar(); if not char then return end
+    if Toggles.BBN_GhostMode.Value then
+        -- Snapshot only the first time on; if user respawns, the snapshot
+        -- becomes stale but new parts default to visible so it's harmless.
+        _bbnGhostSnapshot = {}
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                _bbnGhostSnapshot[p] = {transparency = p.Transparency, canCollide = p.CanCollide}
+            elseif p:IsA("Decal") then
+                _bbnGhostSnapshot[p] = {transparency = p.Transparency}
+            end
+        end
+    else
+        -- Restore from snapshot, then sweep any new parts back to default visible
+        if _bbnGhostSnapshot then
+            for inst, snap in pairs(_bbnGhostSnapshot) do
+                if inst.Parent then
+                    if inst:IsA("BasePart") then
+                        inst.Transparency = snap.transparency
+                        inst.CanCollide = snap.canCollide
+                    elseif inst:IsA("Decal") then
+                        inst.Transparency = snap.transparency
+                    end
+                end
+            end
+            _bbnGhostSnapshot = nil
+        end
+        -- Failsafe: any part still at transparency 1 that wasn't in snapshot
+        -- gets reset to 0 (better than leaving stuck invisible)
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.Transparency == 1 then
+                p.Transparency = 0
+                p.CanCollide = true
+            end
+        end
+    end
+end)
+
+-- BBN Noclip (separate from universal one)
+RunService.Stepped:Connect(function()
+    if not Toggles.BBN_Noclip.Value then return end
+    local char = bbnGetChar(); if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+    end
+end)
+
+-- BBN Advanced Fly (PC) — uses direct CFrame translation per frame
+-- instead of BodyVelocity. BBN runs server-side movement validation
+-- (Requests.Movement) that can reject high-velocity body movers,
+-- so we move the character manually each frame to dodge that path.
+-- BBN Advanced Fly (PC) — anchors HumanoidRootPart and writes CFrame
+-- directly each frame. Anchoring kills physics interactions (gravity,
+-- character controller walking, BBN's PlatformStand restoration) so
+-- vertical movement works cleanly. Server validates position not
+-- velocity, so as long as we don't teleport huge distances per frame
+-- it accepts the new position.
+local bbnFlyConn
+local bbnFlyOriginalAnchored
+local bbnFlyOriginalAutoRotate
+
+local function bbnStopFly()
+    if bbnFlyConn then bbnFlyConn:Disconnect(); bbnFlyConn = nil end
+    local root = bbnGetRoot()
+    if root and bbnFlyOriginalAnchored ~= nil then
+        root.Anchored = bbnFlyOriginalAnchored
+    end
+    local hum = bbnGetHum()
+    if hum and bbnFlyOriginalAutoRotate ~= nil then
+        hum.AutoRotate = bbnFlyOriginalAutoRotate
+    end
+    bbnFlyOriginalAnchored = nil
+    bbnFlyOriginalAutoRotate = nil
+end
+
+local function bbnStartFly()
+    bbnStopFly()
+    local root = bbnGetRoot(); if not root then return end
+    local hum = bbnGetHum()
+
+    -- Capture originals
+    bbnFlyOriginalAnchored = root.Anchored
+    if hum then bbnFlyOriginalAutoRotate = hum.AutoRotate end
+
+    -- Anchor the HRP — kills all physics
+    root.Anchored = true
+    if hum then hum.AutoRotate = false end
+
+    local FLY_SPEED = 60 -- studs per second
+    bbnFlyConn = RunService.Heartbeat:Connect(function(dt)
+        local r = bbnGetRoot()
+        if not r then return end
+        -- If a respawn happened, re-anchor the new HRP
+        if not r.Anchored then r.Anchored = true end
+
+        local move = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move -= Vector3.new(0, 1, 0) end
+        if move.Magnitude > 0 then move = move.Unit end
+
+        -- Translate position by velocity * dt
+        local newPos = r.Position + (move * FLY_SPEED * dt)
+        -- Face camera direction (horizontal only so the body doesn't tilt up/down)
+        local lookH = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z)
+        if lookH.Magnitude > 0 then
+            r.CFrame = CFrame.new(newPos, newPos + lookH.Unit)
+        else
+            r.CFrame = CFrame.new(newPos)
+        end
+    end)
+end
+Toggles.BBN_AdvFlyPC:OnChanged(function()
+    if Toggles.BBN_AdvFlyPC.Value then bbnStartFly() else bbnStopFly() end
+end)
+LP.CharacterAdded:Connect(function()
+    if Toggles.BBN_AdvFlyPC and Toggles.BBN_AdvFlyPC.Value then
+        task.wait(1); bbnStartFly()
+    end
+end)
+
+-- ====================================================
+-- VISUALS TAB
+-- ====================================================
+-- ============= PLAYER ESP — ROLE-BASED =============
+-- Each player gets a colored highlight + billboard with role label, name,
+-- HP bar, and stamina bar. Color depends on the player's role, read from
+-- Character:GetAttribute("Character") which returns strings like
+-- "Survivor-Customer", "Survivor-Fighter", "Springtrap", "Mimic", etc.
+-- Confirmed at decomp line 30308.
+
+local BBNESPBox = Tabs.BBN_Visuals:AddLeftGroupbox("Player ESP", "scan-eye")
+
+BBNESPBox:AddToggle("BBN_PlayerESP", {
+    Text = "Enable Player ESP", Default = false,
+    Tooltip = "Highlights every player with their role color + info billboard",
+})
+BBNESPBox:AddToggle("BBN_ESPShowSelf", {
+    Text = "Include yourself", Default = false,
+})
+BBNESPBox:AddSlider("BBN_ESPMaxDist", {
+    Text = "Max Distance", Default = 500, Min = 50, Max = 2000,
+    Rounding = 0, Suffix = " studs",
+    Tooltip = "Hide ESP for players further than this",
+})
+BBNESPBox:AddDivider()
+BBNESPBox:AddLabel("Role colors:")
+
+local function rolePicker(toggleName, label, defaultRGB)
+    BBNESPBox:AddToggle(toggleName, {
+        Text = "  " .. label, Default = true,
+        Tooltip = "Show " .. label .. " players when ESP is on",
+    }):AddColorPicker(toggleName .. "_Color", {
+        Default = Color3.fromRGB(defaultRGB[1], defaultRGB[2], defaultRGB[3]),
+        Title = label .. " color",
+    })
+end
+
+rolePicker("BBN_RoleCustomer",      "Customer",        {40, 220, 40})
+rolePicker("BBN_RoleMedic",         "Medic",           {40, 220, 100})
+rolePicker("BBN_RoleSecurity",      "Security Guard",  {40, 120, 255})
+rolePicker("BBN_RoleTechnician",    "Technician",      {255, 200, 40})
+rolePicker("BBN_RoleFighter",       "Fighter",         {220, 100, 220})
+rolePicker("BBN_RoleSpringtrap",    "Springtrap",      {255, 60, 60})
+rolePicker("BBN_RoleMimic",         "Mimic",           {255, 60, 60})
+rolePicker("BBN_RoleEnnard",        "Ennard",          {255, 60, 60})
+rolePicker("BBN_RoleLobby",         "Lobby (in menu)", {200, 200, 200})
+
+-- ============= OBJECT ESP =============
+local BBNObjBox = Tabs.BBN_Visuals:AddRightGroupbox("Object ESP", "package-2")
+
+BBNObjBox:AddToggle("BBN_HighlightGens", {
+    Text = "Highlight Generators", Default = false,
+}):AddColorPicker("BBN_GenColor", {
+    Default = Color3.fromRGB(80, 200, 255), Title = "Generator color",
+})
+BBNObjBox:AddToggle("BBN_HighlightFuses", {
+    Text = "Highlight Fuses", Default = false,
+}):AddColorPicker("BBN_FuseColor", {
+    Default = Color3.fromRGB(255, 200, 0), Title = "Fuse color",
+})
+BBNObjBox:AddToggle("BBN_HighlightBatteries", {
+    Text = "Highlight Batteries", Default = false,
+}):AddColorPicker("BBN_BatteryColor", {
+    Default = Color3.fromRGB(80, 240, 220), Title = "Battery color",
+})
+BBNObjBox:AddToggle("BBN_BearTrapESP", {
+    Text = "Bear Trap ESP", Default = false,
+    Tooltip = "Highlights Springtrap's bear traps placed in the world",
+}):AddColorPicker("BBN_TrapColor", {
+    Default = Color3.fromRGB(255, 60, 60), Title = "Bear trap color",
+})
+BBNObjBox:AddToggle("BBN_MinionESP", {
+    Text = "Ennard Minion ESP", Default = false,
+    Tooltip = "Highlights minions Ennard throws on the floor",
+}):AddColorPicker("BBN_MinionColor", {
+    Default = Color3.fromRGB(255, 100, 255), Title = "Minion color",
+})
+BBNObjBox:AddToggle("BBN_DoorHits", {
+    Text = "Door Hit Counter", Default = false,
+    Tooltip = "Shows hits remaining on each door (max 3 from killer)",
+})
+
+-- ============= RADAR ESP =============
+local RadarBox = Tabs.BBN_Visuals:AddRightGroupbox("Radar", "radar")
+RadarBox:AddToggle("BBN_Radar", {
+    Text = "Enable Radar", Default = false,
+    Tooltip = "Static minimap-style radar showing nearby players as colored dots",
+})
+RadarBox:AddSlider("BBN_RadarSize", {
+    Text = "Radar Size", Default = 180, Min = 100, Max = 320, Rounding = 0, Suffix = " px",
+})
+RadarBox:AddSlider("BBN_RadarRange", {
+    Text = "Radar Range", Default = 100, Min = 50, Max = 500, Rounding = 0, Suffix = " studs",
+})
+RadarBox:AddDropdown("BBN_RadarPos", {
+    Text = "Position",
+    Values = { "Bottom Left", "Bottom Right", "Top Left", "Top Right" },
+    Default = "Bottom Right", Multi = false,
+})
+
+local VisionBox = Tabs.BBN_Visuals:AddLeftGroupbox("Vision", "eye")
+
+-- ============= ROLE PARSING =============
+-- Returns the role key (matching toggle suffix) for a character, or nil
+-- if we can't determine it. Examples:
+--   "Survivor-Customer"       -> "Customer"
+--   "Survivor-Security Guard" -> "Security"   (note: stripped "Guard")
+--   "Survivor-Lobby"          -> "Lobby"
+--   "Springtrap"              -> "Springtrap"
+local function getRoleKey(char)
+    if not char then return nil end
+    local cAttr = char:GetAttribute("Character")
+    if not cAttr or cAttr == "" then return nil end
+    -- Killers: whole string match
+    if cAttr == "Springtrap" or cAttr == "Mimic" or cAttr == "Ennard" then
+        return cAttr
+    end
+    -- Survivors: "Survivor-XXX" pattern
+    local _, _, role = string.find(cAttr, "Survivor%-(.+)")
+    if not role then return nil end
+    if role:find("Customer")   then return "Customer"   end
+    if role:find("Medic")      then return "Medic"      end
+    if role:find("Security")   then return "Security"   end -- "Security Guard"
+    if role:find("Technician") then return "Technician" end
+    if role:find("Fighter")    then return "Fighter"    end
+    if role:find("Lobby")      then return "Lobby"      end
+    return nil
+end
+
+-- Map role key -> per-player toggle/color picker option name suffix
+local ROLE_TOGGLE_MAP = {
+    Customer   = "BBN_RoleCustomer",
+    Medic      = "BBN_RoleMedic",
+    Security   = "BBN_RoleSecurity",
+    Technician = "BBN_RoleTechnician",
+    Fighter    = "BBN_RoleFighter",
+    Springtrap = "BBN_RoleSpringtrap",
+    Mimic      = "BBN_RoleMimic",
+    Ennard     = "BBN_RoleEnnard",
+    Lobby      = "BBN_RoleLobby",
+}
+-- Display label for each role (what shows in the billboard top line)
+local ROLE_LABEL = {
+    Customer = "Customer", Medic = "Medic", Security = "Security Guard",
+    Technician = "Technician", Fighter = "Fighter",
+    Springtrap = "Springtrap", Mimic = "Mimic", Ennard = "Ennard",
+    Lobby = "Lobby",
+}
+
+-- ============= PER-PLAYER BILLBOARD + HIGHLIGHT =============
+-- Tracks one Highlight + one BillboardGui per player. Reused across
+-- respawns — clear on character removal, rebuild on next loop.
+local espRigs = {}  -- [Player] = {highlight, billboard, roleLabel, nameLabel, hpFill, hpText, stmFill, stmText}
+
+local function clearRig(player)
+    local rig = espRigs[player]
+    if not rig then return end
+    if rig.highlight then rig.highlight:Destroy() end
+    if rig.billboard then rig.billboard:Destroy() end
+    espRigs[player] = nil
+end
+
+local function buildRig(player, char, color)
+    local hl = Instance.new("Highlight")
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.6
+    hl.OutlineTransparency = 0
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.Parent = char
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "NullclientESP"
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.fromOffset(140, 60)
+    bb.StudsOffset = Vector3.new(0, 3.2, 0)
+    bb.MaxDistance = 1e9
+
+    -- Role label (top)
+    local roleLbl = Instance.new("TextLabel")
+    roleLbl.BackgroundTransparency = 1
+    roleLbl.Size = UDim2.new(1, 0, 0, 16)
+    roleLbl.Position = UDim2.new(0, 0, 0, 0)
+    roleLbl.Font = Enum.Font.GothamBold
+    roleLbl.TextSize = 14
+    roleLbl.TextStrokeTransparency = 0
+    roleLbl.TextColor3 = color
+    roleLbl.Parent = bb
+
+    -- Name label
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Size = UDim2.new(1, 0, 0, 14)
+    nameLbl.Position = UDim2.new(0, 0, 0, 14)
+    nameLbl.Font = Enum.Font.Gotham
+    nameLbl.TextSize = 12
+    nameLbl.TextStrokeTransparency = 0
+    nameLbl.TextColor3 = color
+    nameLbl.Text = player.Name
+    nameLbl.Parent = bb
+
+    -- HP bar (background)
+    local hpBg = Instance.new("Frame")
+    hpBg.Size = UDim2.new(1, -8, 0, 12)
+    hpBg.Position = UDim2.new(0, 4, 0, 30)
+    hpBg.BackgroundColor3 = Color3.new(0, 0, 0)
+    hpBg.BackgroundTransparency = 0.3
+    hpBg.BorderSizePixel = 1
+    hpBg.BorderColor3 = Color3.new(0, 0, 0)
+    hpBg.Parent = bb
+
+    local hpFill = Instance.new("Frame")
+    hpFill.Size = UDim2.fromScale(1, 1)
+    hpFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBg
+
+    local hpText = Instance.new("TextLabel")
+    hpText.BackgroundTransparency = 1
+    hpText.Size = UDim2.fromScale(1, 1)
+    hpText.Font = Enum.Font.GothamBold
+    hpText.TextSize = 11
+    hpText.TextStrokeTransparency = 0
+    hpText.TextColor3 = Color3.new(1, 1, 1)
+    hpText.Text = "HP: ?/?"
+    hpText.Parent = hpBg
+
+    -- Stamina bar
+    local stmBg = Instance.new("Frame")
+    stmBg.Size = UDim2.new(1, -8, 0, 10)
+    stmBg.Position = UDim2.new(0, 4, 0, 44)
+    stmBg.BackgroundColor3 = Color3.new(0, 0, 0)
+    stmBg.BackgroundTransparency = 0.3
+    stmBg.BorderSizePixel = 1
+    stmBg.BorderColor3 = Color3.new(0, 0, 0)
+    stmBg.Parent = bb
+
+    local stmFill = Instance.new("Frame")
+    stmFill.Size = UDim2.fromScale(1, 1)
+    stmFill.BackgroundColor3 = Color3.fromRGB(80, 200, 240)
+    stmFill.BorderSizePixel = 0
+    stmFill.Parent = stmBg
+
+    local stmText = Instance.new("TextLabel")
+    stmText.BackgroundTransparency = 1
+    stmText.Size = UDim2.fromScale(1, 1)
+    stmText.Font = Enum.Font.GothamBold
+    stmText.TextSize = 10
+    stmText.TextStrokeTransparency = 0
+    stmText.TextColor3 = Color3.new(1, 1, 1)
+    stmText.Text = "STM: ?"
+    stmText.Parent = stmBg
+
+    -- Anchor billboard to HumanoidRootPart so it follows the character
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if root then
+        bb.Adornee = root
+        bb.Parent = root
+    else
+        -- Last resort: still parent to character so it shows up
+        bb.Parent = char
+    end
+
+    espRigs[player] = {
+        highlight = hl, billboard = bb,
+        roleLabel = roleLbl, nameLabel = nameLbl,
+        hpFill = hpFill, hpText = hpText,
+        stmFill = stmFill, stmText = stmText,
+    }
+    return espRigs[player]
+end
+
+Players.PlayerRemoving:Connect(clearRig)
+
+-- Main ESP loop — runs every Heartbeat to update colors, bars, distances
+local _bbnEspLastErr = {}  -- throttle table for per-player errors
+RunService.Heartbeat:Connect(function()
+    if not (Toggles.BBN_PlayerESP and Toggles.BBN_PlayerESP.Value) then
+        -- Safe iteration: collect keys first, then clear (avoid mutating
+        -- the table we're iterating over)
+        local toClear = {}
+        for p in pairs(espRigs) do toClear[#toClear + 1] = p end
+        for _, p in ipairs(toClear) do clearRig(p) end
+        return
+    end
+
+    local maxDist = (Options.BBN_ESPMaxDist and Options.BBN_ESPMaxDist.Value) or 500
+    local includeSelf = Toggles.BBN_ESPShowSelf and Toggles.BBN_ESPShowSelf.Value
+    local myRoot = bbnGetRoot()
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        local ok, err = pcall(function()
+            if p == LP and not includeSelf then clearRig(p); return end
+
+            local char = p.Character
+            if not char or not char.Parent then clearRig(p); return end
+
+            -- Distance check
+            if myRoot then
+                local theirRoot = char:FindFirstChild("HumanoidRootPart")
+                               or char:FindFirstChild("Torso")
+                               or char:FindFirstChild("RootPart")
+                               or char.PrimaryPart
+                if theirRoot and (theirRoot.Position - myRoot.Position).Magnitude > maxDist then
+                    clearRig(p); return
+                end
+            end
+
+            -- Determine role + per-role visibility
+            local roleKey = getRoleKey(char)
+            if not roleKey then clearRig(p); return end
+            local toggleName = ROLE_TOGGLE_MAP[roleKey]
+            if not (Toggles[toggleName] and Toggles[toggleName].Value) then
+                clearRig(p); return
+            end
+            local color = (Options[toggleName .. "_Color"] and Options[toggleName .. "_Color"].Value)
+                       or Color3.fromRGB(255, 255, 255)
+
+            -- Build or reuse rig (rebuild on character swap OR if BBN
+            -- destroyed our previous one — pcall catches the .Parent
+            -- access error on destroyed instances)
+            local rig = espRigs[p]
+            local rigBroken = false
+            if rig then
+                local ok = pcall(function() return rig.highlight.Parent end)
+                if not ok then rigBroken = true end
+            end
+            if not rig or rigBroken or not rig.highlight or rig.highlight.Parent ~= char then
+                if rig then clearRig(p) end
+                rig = buildRig(p, char, color)
+            end
+            if not rig then return end -- buildRig may have failed
+
+            -- Push current values + forcefully re-assert every frame.
+            -- BBN's UI/render loop destroys or disables foreign Highlights
+            -- and BillboardGuis (same root cause as the Full Brightness
+            -- override bug). We counter by setting all critical properties
+            -- every Heartbeat — last-write-wins is on our side.
+            rig.highlight.Enabled = true
+            rig.highlight.FillColor = color
+            rig.highlight.OutlineColor = color
+            rig.highlight.FillTransparency = 0.6
+            rig.highlight.OutlineTransparency = 0
+            rig.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            if rig.highlight.Parent ~= char then
+                rig.highlight.Parent = char
+            end
+
+            rig.billboard.Enabled = true
+            rig.billboard.AlwaysOnTop = true
+            rig.billboard.MaxDistance = 1e9
+            local root = char:FindFirstChild("HumanoidRootPart")
+                      or char:FindFirstChild("Torso")
+                      or char.PrimaryPart
+            if root and rig.billboard.Adornee ~= root then
+                rig.billboard.Adornee = root
+            end
+            if root and rig.billboard.Parent ~= root and rig.billboard.Parent ~= char then
+                rig.billboard.Parent = root
+            end
+
+            rig.roleLabel.Text = ROLE_LABEL[roleKey] or roleKey
+            rig.roleLabel.TextColor3 = color
+            rig.nameLabel.TextColor3 = color
+
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local hp = hum.Health
+                local mhp = hum.MaxHealth
+                local frac = mhp > 0 and (hp / mhp) or 0
+                rig.hpFill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
+                rig.hpText.Text = string.format("HP: %d/%d", math.floor(hp), math.floor(mhp))
+                if frac > 0.5 then
+                    rig.hpFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
+                elseif frac > 0.25 then
+                    rig.hpFill.BackgroundColor3 = Color3.fromRGB(255, 200, 60)
+                else
+                    rig.hpFill.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+                end
+            end
+
+            local stm = char:GetAttribute("Stamina")
+            local mstm = char:GetAttribute("MaxStamina")
+            if stm and mstm and mstm > 0 then
+                rig.stmFill.Size = UDim2.fromScale(math.clamp(stm / mstm, 0, 1), 1)
+                rig.stmText.Text = string.format("STM: %d", math.floor(stm))
+            else
+                rig.stmFill.Size = UDim2.fromScale(0, 1)
+                rig.stmText.Text = "STM: -"
+            end
+        end)
+        if not ok then
+            -- Throttle error spam: only log unique error messages once per second
+            local now = tick()
+            _bbnEspLastErr = _bbnEspLastErr or {}
+            local key = p.Name .. ":" .. tostring(err)
+            if (_bbnEspLastErr[key] or 0) < now - 1 then
+                _bbnEspLastErr[key] = now
+                warn("[Nullclient ESP] error for", p.Name, "→", err)
+            end
+        end
+    end
+end)
+
+-- ============= OBJECT ESP IMPLEMENTATION =============
+-- Looks up workspace.MAPS["GAME MAP"]:
+--   .Tasks.Generators / .Tasks.Batteries / .Tasks.FuseBoxes  (game update moved these into Tasks folder)
+--   .Doors                                                    (still top-level)
+-- Decomp lines 4630-4670 (Tasks module) confirmed these locations.
+-- Bear traps and minions are tracked via DescendantAdded listener for
+-- performance (workspace:GetDescendants() every 0.5s was thousands of
+-- instances).
+local objHighlights = {}
+local function getGameMap()
+    local maps = workspace:FindFirstChild("MAPS")
+    return maps and maps:FindFirstChild("GAME MAP")
+end
+local function getTasksFolder()
+    local map = getGameMap()
+    return map and map:FindFirstChild("Tasks")
+end
+
+-- Cached set of trap/minion instances. Built lazily — DescendantAdded
+-- listener catches new spawns; DescendantRemoving cleans up. Initial scan
+-- runs once on load to catch anything already in workspace.
+local _bbnTrackedObjects = {} -- [Instance] = "trap" | "minion"
+local function classifyObject(obj)
+    local n = obj.Name
+    if type(n) ~= "string" then return nil end
+    local lower = n:lower()
+    -- Traps: "Beartrap" / "BearTrap" / "Bear Trap" / "Trap"
+    if lower:find("beartrap") or lower == "trap" or lower:find("bear trap") then
+        return "trap"
+    end
+    -- Minions: "Minion" / "EnnardMinion"
+    if lower:find("minion") then return "minion" end
+    return nil
+end
+-- Initial scan
+task.spawn(function()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        local k = classifyObject(obj)
+        if k then _bbnTrackedObjects[obj] = k end
+    end
+end)
+workspace.DescendantAdded:Connect(function(obj)
+    local k = classifyObject(obj)
+    if k then _bbnTrackedObjects[obj] = k end
+end)
+
+local function applyObjHL(obj, color)
+    local rec = objHighlights[obj]
+    if not rec or not rec.highlight or rec.highlight.Parent ~= obj then
+        local hl = Instance.new("Highlight")
+        hl.FillTransparency = 0.7
+        hl.OutlineTransparency = 0
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = obj
+        objHighlights[obj] = objHighlights[obj] or {}
+        objHighlights[obj].highlight = hl
+        objHighlights[obj].color = color
+    else
+        rec.highlight.FillColor = color
+        rec.highlight.OutlineColor = color
+    end
+end
+
+-- Find a representative BasePart on an object (for adornee/positioning)
+local function objAnchorPart(obj)
+    if obj:IsA("BasePart") then return obj end
+    if obj.PrimaryPart then return obj.PrimaryPart end
+    return obj:FindFirstChildWhichIsA("BasePart")
+end
+
+-- applyObjBillboard: ensures a labeled billboard (with optional progress
+-- bar) is parented above the object. Reuses an existing billboard if
+-- present, otherwise builds one. Progress is read from any ProximityPrompt
+-- descendant via ChargeStart / ChargeDuration attributes (decomp lines
+-- 23653-23694 confirm this pattern). withProgress=false skips the bar.
+local function applyObjBillboard(obj, labelText, color, withProgress)
+    local rec = objHighlights[obj] or {}
+    objHighlights[obj] = rec
+    local bb = rec.billboard
+    if not bb or not bb.Parent then
+        local anchor = objAnchorPart(obj)
+        if not anchor then return end
+        bb = Instance.new("BillboardGui")
+        bb.Name = "NullclientObjESP"
+        bb.AlwaysOnTop = true
+        bb.Size = UDim2.fromOffset(120, withProgress and 36 or 18)
+        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.MaxDistance = 1e9
+        bb.Adornee = anchor
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Label"
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1, 0, 0, 16)
+        lbl.Position = UDim2.new(0, 0, 0, 0)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 13
+        lbl.TextStrokeTransparency = 0
+        lbl.TextColor3 = color
+        lbl.Text = labelText
+        lbl.Parent = bb
+
+        if withProgress then
+            -- Black background bar
+            local barBg = Instance.new("Frame")
+            barBg.Name = "BarBg"
+            barBg.Size = UDim2.new(1, -8, 0, 14)
+            barBg.Position = UDim2.new(0, 4, 0, 18)
+            barBg.BackgroundColor3 = Color3.new(0, 0, 0)
+            barBg.BackgroundTransparency = 0.3
+            barBg.BorderSizePixel = 1
+            barBg.BorderColor3 = Color3.new(0, 0, 0)
+            barBg.Parent = bb
+
+            local fill = Instance.new("Frame")
+            fill.Name = "Fill"
+            fill.Size = UDim2.fromScale(0, 1)
+            fill.BackgroundColor3 = color
+            fill.BorderSizePixel = 0
+            fill.Parent = barBg
+
+            local pctText = Instance.new("TextLabel")
+            pctText.Name = "Pct"
+            pctText.BackgroundTransparency = 1
+            pctText.Size = UDim2.fromScale(1, 1)
+            pctText.Font = Enum.Font.GothamBold
+            pctText.TextSize = 11
+            pctText.TextStrokeTransparency = 0
+            pctText.TextColor3 = Color3.new(1, 1, 1)
+            pctText.Text = "0%"
+            pctText.Parent = barBg
+        end
+
+        bb.Parent = anchor
+        rec.billboard = bb
+    end
+
+    -- Re-assert visible state every call (defeat BBN's render-loop stripping)
+    bb.Enabled = true
+    local lbl = bb:FindFirstChild("Label")
+    if lbl then
+        lbl.Text = labelText
+        lbl.TextColor3 = color
+    end
+
+    -- Update progress bar if applicable. The bar is always visible — at
+    -- 0% when nobody's solving, animates 0→100% live as someone holds
+    -- the ProximityPrompt. Reads from ChargeStart / ChargeDuration
+    -- attributes (decomp lines 23653-23694 confirm this pattern).
+    if withProgress then
+        local barBg = bb:FindFirstChild("BarBg")
+        local fill = barBg and barBg:FindFirstChild("Fill")
+        local pct = barBg and barBg:FindFirstChild("Pct")
+        local progress = 0
+        for _, d in ipairs(obj:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then
+                local cs = d:GetAttribute("ChargeStart") or 0
+                local cd = d:GetAttribute("ChargeDuration") or 0
+                if cs > 0 and cd > 0 then
+                    local elapsed = workspace:GetServerTimeNow() - cs
+                    progress = math.clamp(elapsed / cd, 0, 1)
+                    break
+                end
+            end
+        end
+        if barBg then barBg.Visible = true end
+        if fill then
+            fill.Size = UDim2.fromScale(progress, 1)
+            fill.BackgroundColor3 = color
+        end
+        if pct then pct.Text = string.format("%d%%", math.floor(progress * 100)) end
+    end
+end
+
+local function clearObjHL(obj)
+    local rec = objHighlights[obj]
+    if rec then
+        if rec.highlight then pcall(function() rec.highlight:Destroy() end) end
+        if rec.billboard then pcall(function() rec.billboard:Destroy() end) end
+    end
+    objHighlights[obj] = nil
+end
+
+-- Tracks active door hit-counter billboards
+local doorBillboards = {}
+local function clearDoorBillboard(door)
+    if doorBillboards[door] then
+        doorBillboards[door]:Destroy()
+        doorBillboards[door] = nil
+    end
+end
+local function applyDoorBillboard(door)
+    if doorBillboards[door] and doorBillboards[door].Parent == door then return end
+    local root = door:FindFirstChild("Root")
+    if not root then return end
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "NullclientDoorHits"
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.fromOffset(60, 30)
+    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.MaxDistance = 1e9
+    bb.Adornee = root
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = "HitsLabel"
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.fromScale(1, 1)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 22
+    lbl.TextStrokeTransparency = 0
+    lbl.TextColor3 = Color3.fromRGB(255, 200, 40)
+    lbl.Text = "(?)"
+    lbl.Parent = bb
+    bb.Parent = door
+    doorBillboards[door] = bb
+end
+
+-- Per-second loop: refresh all object ESP from authoritative locations
+task.spawn(function()
+    while task.wait(0.5) do
+        if Library.Unloaded then break end
+
+        local map = getGameMap()
+        if not map then continue end
+        -- Tasks-related objects moved into a Tasks subfolder in the
+        -- game update. Fall back to top-level paths for older versions.
+        local tasks = map:FindFirstChild("Tasks")
+
+        -- GENERATORS — highlight + label + progress bar
+        local gens = (tasks and tasks:FindFirstChild("Generators"))
+                  or map:FindFirstChild("Generators")
+        if gens then
+            for _, g in ipairs(gens:GetChildren()) do
+                if Toggles.BBN_HighlightGens and Toggles.BBN_HighlightGens.Value then
+                    local color = Options.BBN_GenColor.Value
+                    applyObjHL(g, color)
+                    applyObjBillboard(g, "Generator", color, true)
+                else clearObjHL(g) end
+            end
+        end
+
+        -- BATTERIES — highlight + label
+        local bats = (tasks and tasks:FindFirstChild("Batteries"))
+                  or map:FindFirstChild("Batteries")
+        if bats then
+            for _, b in ipairs(bats:GetChildren()) do
+                if Toggles.BBN_HighlightBatteries and Toggles.BBN_HighlightBatteries.Value then
+                    local color = Options.BBN_BatteryColor.Value
+                    applyObjHL(b, color)
+                    applyObjBillboard(b, "Battery", color, false)
+                else clearObjHL(b) end
+            end
+        end
+
+        -- FUSES — highlight + label + progress bar
+        local fuses = (tasks and tasks:FindFirstChild("FuseBoxes"))
+                   or map:FindFirstChild("FuseBoxes") or map:FindFirstChild("Fuses")
+        if fuses then
+            for _, f in ipairs(fuses:GetChildren()) do
+                if Toggles.BBN_HighlightFuses and Toggles.BBN_HighlightFuses.Value then
+                    local color = Options.BBN_FuseColor.Value
+                    applyObjHL(f, color)
+                    applyObjBillboard(f, "Fuse", color, true)
+                else clearObjHL(f) end
+            end
+        end
+
+        -- DOORS (with hit counter billboard)
+        local doors = map:FindFirstChild("Doors")
+        if doors then
+            for _, d in ipairs(doors:GetChildren()) do
+                if Toggles.BBN_DoorHits and Toggles.BBN_DoorHits.Value then
+                    applyDoorBillboard(d)
+                    local bb = doorBillboards[d]
+                    if bb then
+                        -- BBN doors expose a "Breaks" attribute (default 3,
+                        -- decrements with each killer hit). Confirmed via
+                        -- runtime debug.
+                        local hits = d:GetAttribute("Breaks")
+                        local lbl = bb:FindFirstChild("HitsLabel")
+                        if lbl then
+                            lbl.Text = "(" .. tostring(hits or "?") .. ")"
+                        end
+                    end
+                else clearDoorBillboard(d) end
+            end
+        end
+
+        -- BEAR TRAPS / MINIONS — use the cached set (maintained by listeners
+        -- below). Avoids the expensive workspace:GetDescendants() scan we
+        -- previously ran every 0.5s.
+        for obj in pairs(_bbnTrackedObjects) do
+            if not obj.Parent then _bbnTrackedObjects[obj] = nil; continue end
+            local kind = _bbnTrackedObjects[obj]
+            if kind == "trap" then
+                if Toggles.BBN_BearTrapESP and Toggles.BBN_BearTrapESP.Value then
+                    local color = Options.BBN_TrapColor.Value
+                    applyObjHL(obj, color)
+                    applyObjBillboard(obj, "Trap", color, false)
+                else clearObjHL(obj) end
+            elseif kind == "minion" then
+                if Toggles.BBN_MinionESP and Toggles.BBN_MinionESP.Value then
+                    local color = Options.BBN_MinionColor.Value
+                    applyObjHL(obj, color)
+                    applyObjBillboard(obj, "Minion", color, false)
+                else clearObjHL(obj) end
+            end
+        end
+    end
+end)
+
+-- DescendantRemoving listener (the matching pair to the DescendantAdded
+-- listener declared earlier with the cached set of trap/minion objects)
+workspace.DescendantRemoving:Connect(function(obj)
+    if _bbnTrackedObjects[obj] then
+        _bbnTrackedObjects[obj] = nil
+        clearObjHL(obj)
+    end
+end)
+
+
+-- ============= FULL BRIGHTNESS (Ambient mode only) =============
+-- Overrides Lighting.Brightness, Ambient, OutdoorAmbient, GlobalShadows,
+-- and Fog every Heartbeat to brighten the scene globally. BBN runs its
+-- own lighting tweens which would normally stomp our changes — we win
+-- via last-write-wins per frame.
+VisionBox:AddToggle("BBN_FullBright", {
+    Text = "Full Brightness", Default = false,
+    Tooltip = "Brightens scene globally — Brightness slider controls intensity",
+})
+VisionBox:AddSlider("BBN_FB_Brightness", {
+    Text = "Brightness", Default = 1, Min = 0.2, Max = 5, Rounding = 1,
+    Tooltip = "1.0 = standard ambient brightness; higher = washes out more",
+})
+
+local fbActive = false
+local fbOriginalLighting
+
+local function captureLighting()
+    if fbOriginalLighting then return end
+    fbOriginalLighting = {
+        Brightness     = Lighting.Brightness,
+        Ambient        = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+        FogEnd         = Lighting.FogEnd,
+        FogStart       = Lighting.FogStart,
+        GlobalShadows  = Lighting.GlobalShadows,
+    }
+end
+
+local function restoreLighting()
+    if not fbOriginalLighting then return end
+    pcall(function()
+        Lighting.Brightness     = fbOriginalLighting.Brightness
+        Lighting.Ambient        = fbOriginalLighting.Ambient
+        Lighting.OutdoorAmbient = fbOriginalLighting.OutdoorAmbient
+        Lighting.FogEnd         = fbOriginalLighting.FogEnd
+        Lighting.FogStart       = fbOriginalLighting.FogStart
+        Lighting.GlobalShadows  = fbOriginalLighting.GlobalShadows
+    end)
+end
+
+RunService.Heartbeat:Connect(function()
+    local on = Toggles.BBN_FullBright and Toggles.BBN_FullBright.Value
+    if on then
+        captureLighting()
+        local scale = (Options.BBN_FB_Brightness and Options.BBN_FB_Brightness.Value) or 1
+        Lighting.Brightness     = math.clamp(2 * scale, 0, 4)
+        Lighting.Ambient        = Color3.new(scale * 0.7, scale * 0.7, scale * 0.7)
+        Lighting.OutdoorAmbient = Color3.new(scale * 0.7, scale * 0.7, scale * 0.7)
+        Lighting.GlobalShadows  = false
+        Lighting.FogEnd         = math.huge
+        fbActive = true
+    elseif fbActive then
+        restoreLighting()
+        fbActive = false
+    end
+end)
+
+VisionBox:AddSlider("BBN_FOV", {
+    Text = "Field of View", Default = 90, Min = 30, Max = 200, Rounding = 0, Suffix = "°",
+    Callback = function(v) Camera.FieldOfView = v end,
+})
+
+-- ====================================================
+-- COMBAT TAB — Aimbot & Parry
+-- ====================================================
+local AimParryBox = Tabs.BBN_Combat:AddLeftGroupbox("Aimbot & Parry", "crosshair")
+
+AimParryBox:AddToggle("BBN_Aimbot", {
+    Text = "Aimbot (Killer Focus)", Default = false,
+}):AddKeyPicker("BBN_AimbotKey", {
+    Default = "Q", Mode = "Hold", Text = "Aimbot Hold Key",
+})
+AimParryBox:AddToggle("BBN_SilentAim", {
+    Text = "Silent Aim", Default = false, Risky = true,
+})
+AimParryBox:AddDropdown("BBN_AimBone", {
+    Text = "Target Bone",
+    Values = { "Head", "HumanoidRootPart", "UpperTorso", "Torso" },
+    Default = 1, Multi = false,
+})
+AimParryBox:AddToggle("BBN_AimShowFOV", {
+    Text = "Show FOV Circle", Default = true,
+})
+AimParryBox:AddSlider("BBN_AimFOV", {
+    Text = "Silent Aim FOV", Default = 250, Min = 50, Max = 1500, Rounding = 0, Suffix = "px",
+})
+AimParryBox:AddToggle("BBN_AutoParry", {
+    Text = "Auto Parry", Default = false, Risky = true,
+    Tooltip = "Auto-presses parry key when monster approaches within radius (placeholder — needs parry key wiring)",
+})
+AimParryBox:AddSlider("BBN_ParryRadius", {
+    Text = "Auto Parry Radius", Default = 15, Min = 5, Max = 100,
+    Rounding = 0, Suffix = " studs",
+})
+AimParryBox:AddSlider("BBN_ParrySens", {
+    Text = "Parry Sensitivity (Prediction)", Default = 0.15, Min = 0, Max = 0.5, Rounding = 2,
+})
+
+-- Aimbot FOV circle
+local bbnAimCircle
+if Drawing then
+    bbnAimCircle = Drawing.new("Circle")
+    bbnAimCircle.Visible = false
+    bbnAimCircle.Filled = false
+    bbnAimCircle.Thickness = 1
+    bbnAimCircle.Transparency = 1
+    bbnAimCircle.NumSides = 64
+    bbnAimCircle.Color = Color3.fromRGB(160, 100, 255)
+end
+
+-- BBN monster detection: read Character attribute. Killers are exact-match
+-- "Springtrap"/"Mimic"/"Ennard". Mimic in disguise has HasTag("Imitation")
+-- and Character attribute spoofs to "Survivor-Customer" — we still want
+-- aimbot to track them, so we also treat HasTag("Imitation") as monster.
+local function bbnIsMonster(char)
+    if not char then return false end
+    if char:HasTag("Imitation") then return true end -- Mimic disguise
+    local cAttr = char:GetAttribute("Character")
+    return cAttr == "Springtrap" or cAttr == "Mimic" or cAttr == "Ennard"
+end
+
+-- Camera-snap aimbot targeting only monsters
+local function bbnPickMonster()
+    local mp = UserInputService:GetMouseLocation()
+    local fov = Options.BBN_AimFOV.Value
+    local boneName = Options.BBN_AimBone.Value
+    local best, bestDist = nil, fov
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LP or not p.Character then continue end
+        if not bbnIsMonster(p.Character) then continue end
+        local part = p.Character:FindFirstChild(boneName) or p.Character:FindFirstChild("HumanoidRootPart")
+        local hum = p.Character:FindFirstChildOfClass("Humanoid")
+        if not (part and hum and hum.Health > 0) then continue end
+        local sp, on = Camera:WorldToViewportPoint(part.Position)
+        if not on then continue end
+        local d = (Vector2.new(sp.X, sp.Y) - mp).Magnitude
+        if d < bestDist then best, bestDist = part, d end
+    end
+    return best
+end
+
+RunService.RenderStepped:Connect(function()
+    if bbnAimCircle then
+        local show = Toggles.BBN_Aimbot.Value and Toggles.BBN_AimShowFOV.Value
+        bbnAimCircle.Visible = show
+        if show then
+            local mp = UserInputService:GetMouseLocation()
+            bbnAimCircle.Position = Vector2.new(mp.X, mp.Y)
+            bbnAimCircle.Radius = Options.BBN_AimFOV.Value
+        end
+    end
+    if not Toggles.BBN_Aimbot.Value then return end
+    if not Options.BBN_AimbotKey:GetState() then return end
+    local target = bbnPickMonster(); if not target then return end
+    Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+end)
+
+-- Auto Parry: scans monster proximity and notifies (no key press wired yet — needs decomp confirmation)
+local lastParryNotify = 0
+RunService.Heartbeat:Connect(function()
+    if not Toggles.BBN_AutoParry.Value then return end
+    local root = bbnGetRoot(); if not root then return end
+    local radius = Options.BBN_ParryRadius.Value
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LP or not p.Character then continue end
+        if not bbnIsMonster(p.Character) then continue end
+        local theirRoot = p.Character:FindFirstChild("HumanoidRootPart")
+        if theirRoot and (theirRoot.Position - root.Position).Magnitude < radius then
+            if tick() - lastParryNotify > 2 then
+                lastParryNotify = tick()
+                -- TODO: replace with actual parry key/remote when confirmed
+                notImpl("Auto-parry trigger (monster near)")
+            end
+            break
+        end
+    end
+end)
+
+-- Silent Aim: redirect Vector3 args in FireServer when enabled
+if hookmetamethod and not getgenv().__nullclient_bbn_namecall_hooked then
+    getgenv().__nullclient_bbn_namecall_hooked = true
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if Toggles.BBN_SilentAim and Toggles.BBN_SilentAim.Value and method == "FireServer" then
+            local target = bbnPickMonster()
+            if target then
+                local args = {...}
+                local changed = false
+                for i, a in ipairs(args) do
+                    if typeof(a) == "Vector3" then
+                        args[i] = target.Position
+                        changed = true
+                    end
+                end
+                if changed then
+                    return oldNamecall(self, table.unpack(args))
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
+end
+
+-- ====================================================
+-- ANTI-LAG TAB — FPS Optimizations
+-- ====================================================
+local FPSBox = Tabs.BBN_AntiLag:AddLeftGroupbox("FPS Optimizations", "zap-off")
+
+FPSBox:AddToggle("BBN_MazesGFX", {
+    Text = "MAZES LOW GFX OPTIMIZER MORE!", Default = false,
+    Tooltip = "Aggressive GFX nuke — strips most visual effects",
+})
+FPSBox:AddToggle("BBN_BoostFPS", {
+    Text = "Boost FPS", Default = false,
+})
+FPSBox:AddToggle("BBN_NoParticles", {
+    Text = "Reduce Lag (Disable Particles)", Default = false,
+})
+FPSBox:AddToggle("BBN_OptNetwork", {
+    Text = "Optimize Network", Default = false,
+    Tooltip = "Sets IncomingReplicationLag and tweaks NetworkClient throttles",
+})
+FPSBox:AddToggle("BBN_NoShadows", {
+    Text = "Disable Shadows", Default = false,
+})
+FPSBox:AddButton({
+    Text = "Clear Workspace Debris",
+    Func = function()
+        local removed = 0
+        local processed = 0
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if (obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("ParticleEmitter")
+                or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire")
+                or obj:IsA("Sparkles")) and obj.Parent ~= LP.Character then
+                obj:Destroy(); removed = removed + 1
+            end
+            processed = processed + 1
+            if processed % 500 == 0 then task.wait() end
+        end
+        Library:Notify({Title = "Anti-Lag", Description = "Cleared " .. removed .. " items", Time = 3})
+    end,
+})
+FPSBox:AddToggle("BBN_LowAvatars", {
+    Text = "Low Render Avatars", Default = false,
+    Tooltip = "Sets all character meshes to lowest quality",
+})
+
+-- Apply once when toggles flip on; each toggle is one-shot scan & reset
+Toggles.BBN_MazesGFX:OnChanged(function()
+    if not Toggles.BBN_MazesGFX.Value then return end
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Smoke")
+            or d:IsA("Fire") or d:IsA("Sparkles") or d:IsA("Beam") then
+            d.Enabled = false
+        elseif d:IsA("PostEffect") then
+            d.Enabled = false
+        end
+    end
+    Lighting.GlobalShadows = false
+    for _, e in ipairs(Lighting:GetChildren()) do
+        if e:IsA("BlurEffect") or e:IsA("BloomEffect") or e:IsA("ColorCorrectionEffect")
+            or e:IsA("DepthOfFieldEffect") or e:IsA("SunRaysEffect") then
+            e.Enabled = false
+        end
+    end
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    Library:Notify({Title = "Anti-Lag", Description = "Mazes LOW GFX applied", Time = 3})
+end)
+
+Toggles.BBN_BoostFPS:OnChanged(function()
+    if not Toggles.BBN_BoostFPS.Value then return end
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and d.Material ~= Enum.Material.Air then
+            d.Material = Enum.Material.Plastic
+        end
+    end
+    Library:Notify({Title = "Anti-Lag", Description = "Materials simplified", Time = 3})
+end)
+
+Toggles.BBN_NoParticles:OnChanged(function()
+    if not Toggles.BBN_NoParticles.Value then return end
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("ParticleEmitter") or d:IsA("Trail") then d.Enabled = false end
+    end
+end)
+
+Toggles.BBN_NoShadows:OnChanged(function()
+    Lighting.GlobalShadows = not Toggles.BBN_NoShadows.Value
+end)
+
+Toggles.BBN_OptNetwork:OnChanged(function()
+    if Toggles.BBN_OptNetwork.Value then
+        pcall(function()
+            settings().Network.IncomingReplicationLag = 0
+        end)
+    end
+end)
+
+Toggles.BBN_LowAvatars:OnChanged(function()
+    if not Toggles.BBN_LowAvatars.Value then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            for _, m in ipairs(p.Character:GetDescendants()) do
+                if m:IsA("MeshPart") then
+                    m.RenderFidelity = Enum.RenderFidelity.Performance
+                end
+            end
+        end
+    end
+end)
+
+-- ====================================================
+-- OTHER TAB — External Hubs
+-- ====================================================
+local ExtBox = Tabs.BBN_Other:AddLeftGroupbox("External Hubs", "package")
+
+ExtBox:AddButton({
+    Text = "Infinite Yield",
+    Func = function()
+        Library:Notify({Title = "Loading", Description = "Infinite Yield...", Time = 3})
+        task.spawn(function()
+            local ok = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+            end)
+            Library:Notify({Title = ok and "Loaded" or "Failed", Description = "Infinite Yield " .. (ok and "✓" or "✗"), Time = 3})
+        end)
+    end,
+})
+ExtBox:AddButton({
+    Text = "CMD-X",
+    Func = function()
+        Library:Notify({Title = "Loading", Description = "CMD-X...", Time = 3})
+        task.spawn(function()
+            local ok = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/CMD-X/CMD-X/master/Source"))()
+            end)
+            Library:Notify({Title = ok and "Loaded" or "Failed", Description = "CMD-X " .. (ok and "✓" or "✗"), Time = 3})
+        end)
+    end,
+})
+ExtBox:AddButton({
+    Text = "Nameless Admin",
+    Func = function()
+        Library:Notify({Title = "Loading", Description = "Nameless Admin...", Time = 3})
+        task.spawn(function()
+            local ok = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/IsoUtils/Nameless-Admin/main/Source.lua"))()
+            end)
+            Library:Notify({Title = ok and "Loaded" or "Failed", Description = "Nameless Admin " .. (ok and "✓" or "✗"), Time = 3})
+        end)
+    end,
+})
+
+-- ============= RADAR IMPLEMENTATION =============
+-- Static minimap-style radar in a configurable corner. Players show as
+-- colored dots based on role (uses ROLE_TOGGLE_MAP+Options for colors so
+-- they match Player ESP). Camera direction = up. Distance scaled to the
+-- chosen range. Requires executor Drawing API.
+--
+-- Draggable: hold left mouse button on the radar to move it. Custom
+-- offset (when dragged) overrides the corner-based position.
+local radarObjects = nil
+local radarCustomCenter = nil -- {x, y} when user has dragged it
+local radarDragState = { active = false, offsetX = 0, offsetY = 0 }
+
+local function clearRadar()
+    if not radarObjects then return end
+    for _, obj in ipairs(radarObjects.elements) do
+        pcall(function() obj:Remove() end)
+    end
+    radarObjects = nil
+end
+
+local function ensureRadar()
+    if radarObjects then return radarObjects end
+    if not Drawing then return nil end
+    radarObjects = { elements = {}, dots = {} }
+    local bg = Drawing.new("Circle")
+    bg.Filled = true; bg.Color = Color3.new(0, 0, 0); bg.Transparency = 0.65
+    bg.NumSides = 48; bg.Visible = false
+    radarObjects.bg = bg; table.insert(radarObjects.elements, bg)
+    local border = Drawing.new("Circle")
+    border.Filled = false; border.Color = Color3.fromRGB(160, 100, 255)
+    border.Thickness = 2; border.NumSides = 48; border.Transparency = 1; border.Visible = false
+    radarObjects.border = border; table.insert(radarObjects.elements, border)
+    local crossH = Drawing.new("Line")
+    crossH.Color = Color3.fromRGB(160, 100, 255); crossH.Thickness = 1
+    crossH.Transparency = 0.5; crossH.Visible = false
+    radarObjects.crossH = crossH; table.insert(radarObjects.elements, crossH)
+    local crossV = Drawing.new("Line")
+    crossV.Color = Color3.fromRGB(160, 100, 255); crossV.Thickness = 1
+    crossV.Transparency = 0.5; crossV.Visible = false
+    radarObjects.crossV = crossV; table.insert(radarObjects.elements, crossV)
+    local me = Drawing.new("Circle")
+    me.Filled = true; me.Color = Color3.fromRGB(255, 255, 255)
+    me.NumSides = 12; me.Radius = 3; me.Transparency = 1; me.Visible = false
+    radarObjects.me = me; table.insert(radarObjects.elements, me)
+    return radarObjects
+end
+
+-- Per-player dot pool — cleans up on player leave
+local function getPlayerDot(player)
+    local r = radarObjects
+    if not r then return nil end
+    local dot = r.dots[player]
+    if not dot or not dot._alive then
+        dot = Drawing.new("Circle")
+        dot.Filled = true; dot.NumSides = 10; dot.Radius = 3
+        dot.Transparency = 1; dot._alive = true
+        r.dots[player] = dot
+        table.insert(r.elements, dot)
+    end
+    return dot
+end
+Players.PlayerRemoving:Connect(function(p)
+    if radarObjects and radarObjects.dots[p] then
+        pcall(function() radarObjects.dots[p]:Remove() end)
+        radarObjects.dots[p] = nil
+    end
+end)
+
+-- Compute current radar center based on dragged offset OR corner choice
+local function computeRadarCenter(size)
+    local vp = Camera.ViewportSize
+    if radarCustomCenter then
+        return radarCustomCenter.x, radarCustomCenter.y
+    end
+    local pad = 24
+    local pos = (Options.BBN_RadarPos and Options.BBN_RadarPos.Value) or "Bottom Right"
+    if pos == "Bottom Right" then return vp.X - pad - size / 2, vp.Y - pad - size / 2
+    elseif pos == "Bottom Left" then return pad + size / 2, vp.Y - pad - size / 2
+    elseif pos == "Top Left" then return pad + size / 2, pad + size / 2
+    else return vp.X - pad - size / 2, pad + size / 2 -- Top Right
+    end
+end
+
+-- Mouse-down on the radar: start dragging if click is inside the circle
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    if not (Toggles.BBN_Radar and Toggles.BBN_Radar.Value) then return end
+    local size = (Options.BBN_RadarSize and Options.BBN_RadarSize.Value) or 180
+    local cx, cy = computeRadarCenter(size)
+    local mp = UserInputService:GetMouseLocation()
+    local d = Vector2.new(mp.X - cx, mp.Y - cy).Magnitude
+    if d <= size / 2 then
+        radarDragState.active = true
+        radarDragState.offsetX = mp.X - cx
+        radarDragState.offsetY = mp.Y - cy
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        radarDragState.active = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not radarDragState.active then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+    local mp = UserInputService:GetMouseLocation()
+    radarCustomCenter = {
+        x = mp.X - radarDragState.offsetX,
+        y = mp.Y - radarDragState.offsetY,
+    }
+end)
+
+RunService.RenderStepped:Connect(function()
+    local on = Toggles.BBN_Radar and Toggles.BBN_Radar.Value
+    if not on then
+        clearRadar()
+        return
+    end
+    local r = ensureRadar()
+    if not r then return end
+
+    local size = (Options.BBN_RadarSize and Options.BBN_RadarSize.Value) or 180
+    local range = (Options.BBN_RadarRange and Options.BBN_RadarRange.Value) or 100
+    local cx, cy = computeRadarCenter(size)
+    local center = Vector2.new(cx, cy)
+    local radius = size / 2
+
+    -- Hide everything first to avoid trails on some Drawing implementations
+    for _, e in ipairs(r.elements) do
+        if e ~= r.bg and e ~= r.border and e ~= r.crossH and e ~= r.crossV and e ~= r.me then
+            e.Visible = false
+        end
+    end
+
+    -- Background + border + cross + me marker
+    r.bg.Position = center;     r.bg.Radius = radius;     r.bg.Visible = true
+    r.border.Position = center; r.border.Radius = radius; r.border.Visible = true
+    r.crossH.From = Vector2.new(cx - radius, cy); r.crossH.To = Vector2.new(cx + radius, cy); r.crossH.Visible = true
+    r.crossV.From = Vector2.new(cx, cy - radius); r.crossV.To = Vector2.new(cx, cy + radius); r.crossV.Visible = true
+    r.me.Position = center;     r.me.Visible = true
+
+    local myRoot = bbnGetRoot()
+    if not myRoot then return end
+    local camCF = Camera.CFrame
+    local fwd = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+    if fwd.Magnitude < 0.01 then return end
+    fwd = fwd.Unit
+    local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
+    if right.Magnitude < 0.01 then return end
+    right = right.Unit
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LP or not p.Character then continue end
+        local theirRoot = p.Character:FindFirstChild("HumanoidRootPart")
+        if not theirRoot then continue end
+        local rel = theirRoot.Position - myRoot.Position
+        local relFlat = Vector3.new(rel.X, 0, rel.Z)
+        local dist = relFlat.Magnitude
+        if dist > range then continue end
+        local fwdDot = relFlat:Dot(fwd)
+        local rightDot = relFlat:Dot(right)
+        local px = cx + (rightDot / range) * radius
+        local py = cy - (fwdDot / range) * radius
+        local off = Vector2.new(px - cx, py - cy)
+        if off.Magnitude > radius - 4 then
+            off = off.Unit * (radius - 4)
+            px, py = cx + off.X, cy + off.Y
+        end
+        local roleKey = getRoleKey(p.Character)
+        local color = Color3.fromRGB(200, 200, 200)
+        if roleKey then
+            local toggleName = ROLE_TOGGLE_MAP[roleKey]
+            if toggleName and Options[toggleName .. "_Color"] and Options[toggleName .. "_Color"].Value then
+                color = Options[toggleName .. "_Color"].Value
+            end
+        end
+        local dot = getPlayerDot(p)
+        if dot then
+            dot.Position = Vector2.new(px, py)
+            dot.Color = color
+            dot.Visible = true
+        end
+    end
+end)
+
+-- Cleanup on unload — restore character to a usable state
+Library:OnUnload(function()
+    clearRadar()
+    -- Stop fly, restore anchoring
+    if bbnFlyConn then pcall(function() bbnFlyConn:Disconnect() end) end
+    local root = bbnGetRoot()
+    if root and bbnFlyOriginalAnchored ~= nil then
+        pcall(function() root.Anchored = bbnFlyOriginalAnchored end)
+    end
+    local hum = bbnGetHum()
+    if hum and bbnFlyOriginalAutoRotate ~= nil then
+        pcall(function() hum.AutoRotate = bbnFlyOriginalAutoRotate end)
+    end
+
+    -- Restore Ghost Mode if it left the character invisible
+    local char = bbnGetChar()
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.Transparency == 1 then
+                pcall(function() p.Transparency = 0; p.CanCollide = true end)
+            end
+        end
+    end
+
+    -- Restore Lighting if FullBright was active
+    if fbActive then pcall(restoreLighting); fbActive = false end
+
+    -- Disconnect Running latch
+    if _bbnRunningConn then pcall(function() _bbnRunningConn:Disconnect() end) end
+    if _bbnAutoRepairConn then pcall(function() _bbnAutoRepairConn:Disconnect() end) end
+
+    -- Destroy ESP rigs + object highlights
+    for player, rig in pairs(espRigs) do
+        if rig.highlight then pcall(function() rig.highlight:Destroy() end) end
+        if rig.billboard then pcall(function() rig.billboard:Destroy() end) end
+    end
+    espRigs = {}
+    for obj, rec in pairs(objHighlights) do
+        if rec.highlight then pcall(function() rec.highlight:Destroy() end) end
+    end
+    objHighlights = {}
+    for door, bb in pairs(doorBillboards) do
+        pcall(function() bb:Destroy() end)
+    end
+    doorBillboards = {}
+
+    -- Aimbot circle cleanup
+    if bbnAimCircle then pcall(function() bbnAimCircle:Remove() end) end
+
+    -- Music sound
+    if bbnMusicSound then
+        pcall(function() bbnMusicSound:Stop(); bbnMusicSound:Destroy() end)
+    end
+
+    -- Restore mouse behavior if barricade left it locked
+    if _bbnBarricadeWasLocked then
+        pcall(function() UserInputService.MouseBehavior = Enum.MouseBehavior.Default end)
+        pcall(function() LP:SetAttribute("Mouselocked", false) end)
+    end
+end)
+
+-- ====================================================
+-- UI SETTINGS TAB
+-- ====================================================
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+
+MenuGroup:AddToggle("KeybindMenuOpen", {
+    Default = Library.KeybindFrame.Visible,
+    Text = "Open Keybind Menu",
+    Callback = function(value) Library.KeybindFrame.Visible = value end,
+})
+MenuGroup:AddToggle("ShowCustomCursor", {
+    Text = "Custom Cursor", Default = true,
+    Callback = function(v) Library.ShowCustomCursor = v end,
+})
+MenuGroup:AddDropdown("NotificationSide", {
+    Values = { "Left", "Right" }, Default = "Right",
+    Text = "Notification Side",
+    Callback = function(v) Library:SetNotifySide(v) end,
+})
+MenuGroup:AddDropdown("DPIDropdown", {
+    Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
+    Default = "100%", Text = "DPI Scale",
+    Callback = function(v)
+        v = v:gsub("%%", "")
+        Library:SetDPIScale(tonumber(v))
+    end,
+})
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", {
+    Default = "RightShift", NoUI = true, Text = "Menu keybind",
+})
+MenuGroup:AddButton({
+    Text = "Unload Hub",
+    Func = function() Library:Unload() end,
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+-- ====================================================
+-- THEME MANAGER + SAVE MANAGER (configs + autoload)
+-- ====================================================
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+
+ThemeManager:SetFolder("NullclientHub")
+SaveManager:SetFolder("NullclientHub/bbn")
+
+-- Custom Nullclient theme
+ThemeManager:SetDefaultTheme({
+    FontColor       = Color3.fromRGB(245, 240, 255),
+    MainColor       = Color3.fromRGB(22, 14, 38),
+    AccentColor     = Color3.fromRGB(160, 100, 255),
+    BackgroundColor = Color3.fromRGB(12, 8, 22),
+    OutlineColor    = Color3.fromRGB(80, 50, 130),
+})
+
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+
+Library:Notify({
+    Title = "Nullclient · BBN Loaded",
+    Description = "Bite by Night detected — survival features active",
+    Time = 4,
+})
+
+SaveManager:LoadAutoloadConfig()
